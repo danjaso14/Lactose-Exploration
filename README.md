@@ -1,3 +1,3 @@
 # Lactose-Exploration
-View full report write up on Lactose_Tolerant_Exploration Report.pdf \n
-Download .html file to view 3D visualizations
+View full report write up on Lactose_Tolerant_Exploration Report.pdf \
+Download Lactose_Tolerant_Exploration Report.html file to view 3D visualizations
