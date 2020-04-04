@@ -1,0 +1,433 @@
+---
+title: "Lactose Tolerance Exploration"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+```{r, echo=FALSE, results='hide', warning=FALSE}
+options(warn=-1)
+suppressMessages(library(ggplot2))
+suppressMessages(library(corrplot))   
+suppressMessages(library(imputeTS))
+suppressMessages(library(psych))
+suppressMessages(library(pscl))
+suppressMessages(library(plotly))
+```
+
+
+
+# Research Motivation
+The data collected was extracted from opensnp.org which is public to anyone. The data was extracted and was preprocessed in our legacy code that is able to accomplish the following:  \newline
+1. Preprocessing the genomic data - This step converts user genotypes at each SNP to a mutation count. \newline
+2. Building the model - This step uses the preprocessed data to build a model to predict phenotype. \newline
+3. Using the model - This step uses the model from the previous step to predict phenotype for additional users. \newline
+
+By using elastic net, this model had the highest accuracy with 92% and it provide us with the top candidates (Rsid) for the phenotype that is lactose tolerance we are currently researching for a specific gene and ethnic group.
+```{r, echo=FALSE}
+original_data <- read.csv('/Users/student1/Desktop/lact_exploration/three_label_with_selected_features_rn.csv')
+```
+
+
+
+
+\newpage
+## Context and SNPs of Interest
+```{r pressure, echo=FALSE,fig.cap="Lactose Tolerance Facts", out.width = '100%'}
+knitr::include_graphics("/Users/student1/Desktop/lact_exploration/lact2(2).png")
+```
+\newpage
+
+
+## SNP of interest  
+```{r pressure1, echo=FALSE,fig.cap="MCM6 Variant Table", out.width = '100%'}
+knitr::include_graphics("/Users/student1/Desktop/lact_exploration/lact1(1).png")
+```
+\newpage
+
+
+## Top 20 coefficients (SNPs) legacy code capture using Elastic Net
+```{r pressure2, echo=FALSE,fig.cap="Top 20 Coefficients", out.width = '100%'}
+knitr::include_graphics("/Users/student1/Desktop/lact_exploration/top20(3).png")
+```
+\newpage
+
+
+
+
+# Data distribution
+```{r}
+dim(original_data)
+table(original_data$pheno)
+p<-ggplot(original_data, aes(x=pheno, fill=pheno)) +
+  geom_bar(stat="count")+theme_minimal() +
+  ggtitle("Phenotype Distribution")
+p <- p + labs(fill = "Phenotype") +  xlab("Lactose Phenotype")
+p
+
+
+```
+
+
+
+\newpage
+
+
+# EDA and Data Preprocessing For Top 20 Rsid
+Steps applied were the following: \newline 
+   i) Drop rows that has users' phenotype as partial. \newline 
+   ii) Threshold to drop columns with more than 50% of NA and drop phenotype with partial label. \newline
+   iii) Imputation by mode.
+   
+```{r, echo=FALSE,results='hide'}
+original_data <- original_data[original_data$pheno != "partial",]
+original_data_50thres <- original_data[, which(colMeans(!is.na(original_data)) > .5)]
+```
+
+```{r}
+dim(original_data_50thres)
+table(original_data_50thres$pheno)
+p<-ggplot(original_data_50thres, aes(x=pheno, fill=pheno)) +
+  geom_bar(stat="count")+theme_minimal() +
+  ggtitle("Phenotype Distribution After Dropping Partial Lactose Tolerance Phenotype")
+p <- p + labs(fill = "Phenotype") +  xlab("Lactose Phenotype")
+p
+
+
+```
+
+\newpage
+
+## Subset of Top 20 Rsid Dimensions
+```{r}
+top_20 <- original_data_50thres[,c("rs6545107","rs988179", "rs7712447", "rs4903435","rs10178148",
+          "rs4396824", "rs1995990", "rs1558910",
+          "rs3799807", "rs4988406", "rs17293443", "rs9386654", "rs10229311",
+          "rs12209650", "rs11562695", "rs9914374", "rs1088682", "rs1254601",
+          "rs182549",  "rs4988235","pheno")]
+
+dim(top_20)
+```
+
+
+## Correlation Plot
+Below displayed we can observed that rs182549 and rs4988235 are highly correlated
+with a 0.985596271.
+```{r}
+corrplot(cor(top_20[1:20], use = "pairwise.complete.obs"), type = "upper")
+```
+
+\newpage
+
+### Correlation Info of rs182549 with the other Rsid 
+```{r}
+corr_data <- cor(top_20[1:20], use = "pairwise.complete.obs")
+corr_data[,19]
+```
+
+### Correlation Info of rs4988235 with the other Rsid 
+```{r}
+corr_data[,20]
+
+```
+
+
+```{r, echo=FALSE}
+top_20$pheno <- ifelse(top_20$pheno == "intolerant",1, 0)
+
+
+```
+
+```{r, echo=FALSE}
+
+# Imputation by mode
+
+for (column in 1:length(top_20))
+{
+  top_20[, column] <- ifelse(is.na(top_20[,column]) == TRUE, 
+                                 na_mean(top_20[,column],option = "mode"), 
+                                 top_20[,column])
+}
+
+
+
+
+```
+
+\newpage
+
+
+# PCA Analysis with Using Varimax Rotation
+
+Factor rotations make the expression of a particular subspace simpler. Subspaces are smaller vector spaces within a R^n vector space. The orthogonal basis is rotated to align with the coordinate system. By making use of varimax rotation the orthogonal rotation produce that these factors are not correlated.Varimax rotation seeks to maximize the sum of the variance of the squared loadings, where these location means correlations between variables and factors.
+
+## PCA with Varimax Rotation, Rotatated Components = 2
+```{r}
+
+pca_varimax <- principal(top_20[1:20], nfactors = 2, rotate = "varimax")
+rotation2 <- data.frame(cbind(pca_varimax$score, pheno=top_20[,"pheno"]))
+pca_varimax$loadings
+pca_varimax$Vaccounted
+
+```
+
+\newpage
+
+### Principal Component Regression (PCR) with 2 Rotated Components
+```{r}
+
+linModel <- glm(pheno ~ ., data = rotation2, family = "binomial")
+summary(linModel)
+pR2(linModel)[4]
+
+
+```
+
+\newpage
+
+### PCA with 2 Rotated Components Plot
+```{r}
+ggplot(rotation2, aes(x = RC1, y = RC2, label = as.factor(pheno))) +
+  geom_point(aes(colour = as.factor(pheno)), show.legend = TRUE) +
+  scale_color_manual(name="Phenotype",
+                       labels=c("Tolerant","Intolerant"),
+                       values=c("red","blue")) +
+   ggtitle("2 Rotated Components Over Top 20 Rsid")
+
+```
+
+
+
+
+\newpage
+
+## PCA with Varimax Rotation, Rotatated Components = 3
+```{r}
+pca_varimax <- principal(top_20[1:20], nfactors = 3, rotate = "varimax")
+rotation3 <- data.frame(cbind(pca_varimax$score, pheno=top_20[,"pheno"]))
+pca_varimax$loadings
+
+pca_varimax$Vaccounted
+
+
+```
+
+\newpage
+
+### PCR with 3 Rotated Components
+```{r}
+
+linModel <- glm(pheno ~ ., data = rotation3, family = "binomial")
+summary(linModel)
+pR2(linModel)[4]
+
+```
+
+\newpage
+
+### PCA with 3 Rotated Components Plot
+
+
+```{r pressure10, echo=FALSE,fig.cap="3D Viz of Top 20 Coefficients (1)", out.width = '100%'}
+# knitr::include_graphics("/Users/student1/Desktop/lact_exploration/Top20(1).png")
+```
+
+\newpage
+
+
+```{r pressure11, echo=FALSE,fig.cap="3D Viz of Top 20 Coefficients (2)", out.width = '100%'}
+# knitr::include_graphics("/Users/student1/Desktop/lact_exploration/Top20(2).png")
+```
+
+
+```{r, echo=FALSE}
+
+
+rotation3$pheno[which(rotation3$pheno == 0)] <- 'Tolerant'
+rotation3$pheno[which(rotation3$pheno == 1)] <- 'Intolerant'
+
+fig <- plot_ly(rotation3, x = ~RC1, y = ~RC2, z = ~RC3, color = ~as.factor(pheno), colors = c('#0C4B8E','#BF382A'))
+fig <- fig %>% add_markers()
+fig <- fig %>% layout(scene = list(xaxis = list(title = 'RC1'),
+                     yaxis = list(title = 'RC2'),
+                     zaxis = list(title = 'RC3')))
+fig
+```
+
+
+
+\newpage
+
+
+# EDA and Data Preprocessing Over Full Data
+Steps applied were the following: \newline 
+   i) Drop rows that has users' phenotype as partial. \newline 
+   ii) Threshold to drop columns with more than 60% of NA and drop pheno with partial label. \newline
+   iii) Imputation by mode. \newline
+   iv) Elimininate columns that are highly correlated (threshold > 0.99).
+
+```{r, echo=FALSE}
+rm(list = ls(all.names = TRUE))
+
+suppressMessages(library(imputeTS))
+suppressMessages(library(caret))
+suppressMessages(library(psych))
+suppressMessages(library(plotly))
+
+
+```
+
+
+```{r}
+original_data <- read.csv('/Users/student1/Desktop/lact_exploration/three_label_with_selected_features_rn.csv')
+table(original_data$pheno)
+print(dim(original_data))
+```
+
+
+
+```{r, echo=FALSE}
+
+original_data_60thres <- original_data[, which(colMeans(!is.na(original_data)) > .6)]
+original_data_60thres <- original_data_60thres[original_data_60thres$pheno != "partial",]
+# dim(original_data_60thres)
+
+```
+
+```{r, echo=FALSE}
+
+for (column in 2:length(original_data_60thres)-1)
+{
+  original_data_60thres[, column] <- ifelse(is.na(original_data_60thres[,column]) == TRUE, 
+                         na_mean(original_data_60thres[,column],option = "mode"),
+                         original_data_60thres[,column])
+}
+
+
+```
+
+
+
+
+## Dimensions after data prerpocessing
+```{r}
+## Elimininate columns that are highly correlated
+
+corr <- cor(original_data_60thres[,2:length(original_data_60thres)-1])
+highCorr <- findCorrelation(corr, cutoff = .99, names = T)
+clean_data <- original_data_60thres[, !names(original_data_60thres) %in% highCorr]
+dim(clean_data)
+table(clean_data$pheno)
+```
+
+```{r}
+temp <- clean_data[, 2:length(clean_data)]
+p<-ggplot(temp, aes(x=pheno, fill=pheno)) +
+  geom_bar(stat="count")+theme_minimal() +
+  ggtitle("Phenotype Distribution")
+p <- p + labs(fill = "Phenotype") +  xlab("Lactose Phenotype")
+p
+
+
+
+
+```
+
+## PCA with Varimax Rotation, Rotatated Components = 2
+```{r, echo=FALSE}
+
+clean_data$pheno <- ifelse(original_data_60thres$pheno == "intolerant", 1, 0)
+
+```
+
+Displaying only MCM6 gene that is of interest for this research
+```{r}
+pca_varimax <- principal(clean_data[,2:length(clean_data)-1], nfactors = 2, rotate = "varimax")
+rotation2 <- data.frame(cbind(pca_varimax$score, pheno=clean_data[,"pheno"]))
+# pca_varimax$loadings
+pca_varimax$loadings[c(59,345),]
+pca_varimax$Vaccounted
+
+
+```
+
+
+\newpage
+
+### PCR with 2 Rotated Components
+```{r}
+
+linModel <- glm(pheno ~ RC1 + RC2 , data = rotation2, family = "binomial")
+summary(linModel)
+pR2(linModel)[4]
+
+```
+
+\newpage
+
+### PCA with 2 Rotated Components Plot
+```{r}
+ggplot(rotation2, aes(x = RC1, y = RC2, label = as.factor(pheno))) +
+  geom_point(aes(colour = as.factor(pheno)), show.legend = TRUE) +
+  scale_color_manual(name="Phenotype",
+                       labels=c("Tolerant","Intolerant"),
+                       values=c("red","blue")) +
+   ggtitle("2 Rotated Components Over Full Data")
+
+```
+
+\newpage
+
+## PCA with Varimax Rotation, Rotatated Components = 3
+
+
+Displaying only MCM6 gene that is of interest for this research
+
+```{r}
+
+pca_varimax <- principal(clean_data[,2:length(clean_data)-1], nfactors = 3, rotate = "varimax")
+rotation3 <- data.frame(cbind(pca_varimax$score, pheno=clean_data[,"pheno"]))
+pca_varimax$loadings[c(59,345),]
+pca_varimax$Vaccounted
+
+```
+
+\newpage
+
+
+### PCR with 3 Rotated Components
+```{r}
+
+linModel <- glm(pheno ~ ., data = rotation3, family = "binomial")
+summary(linModel)
+pR2(linModel)[4]
+
+
+```
+
+\newpage
+
+### PCA with 3 Rotated Components Plot
+
+
+```{r pressure20, echo=FALSE,fig.cap="3D Viz of All Rsid (1)", out.width = '100%'}
+# knitr::include_graphics("/Users/student1/Desktop/lact_exploration/All(1).png")
+```
+
+```{r pressure21, echo=FALSE,fig.cap="3D Viz of All Rsid (2)", out.width = '100%'}
+# knitr::include_graphics("/Users/student1/Desktop/lact_exploration/All(2).png")
+```
+
+```{r, echo=FALSE}
+
+rotation3$pheno[which(rotation3$pheno == 0)] <- 'Tolerant'
+rotation3$pheno[which(rotation3$pheno == 1)] <- 'Intolerant'
+
+fig <- plot_ly(rotation3, x = ~RC1, y = ~RC2, z = ~RC3, color = ~as.factor(pheno), colors = c('#0C4B8E','#BF382A'))
+fig <- fig %>% add_markers()
+fig <- fig %>% layout(scene = list(xaxis = list(title = 'RC1'),
+                     yaxis = list(title = 'RC2'),
+                     zaxis = list(title = 'RC3')))
+fig
+```
